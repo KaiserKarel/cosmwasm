@@ -13,6 +13,7 @@ use crate::conversion::ref_to_u32;
 use crate::errors::{VmError, VmResult};
 use crate::instance::Instance;
 use crate::serde::{from_slice, to_vec};
+use crate::WasmVM;
 
 /// The limits in here protect the host from allocating an unreasonable amount of memory
 /// and copying an unreasonable amount of data.
@@ -94,8 +95,8 @@ mod deserialization_limits {
     pub const RESULT_IBC_PACKET_TIMEOUT: usize = 256 * KI;
 }
 
-pub fn call_instantiate<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_instantiate<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     info: &MessageInfo,
     msg: &[u8],
@@ -105,6 +106,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let info = to_vec(info)?;
@@ -114,8 +116,8 @@ where
     Ok(result)
 }
 
-pub fn call_execute<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_execute<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     info: &MessageInfo,
     msg: &[u8],
@@ -125,6 +127,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let info = to_vec(info)?;
@@ -134,8 +137,8 @@ where
     Ok(result)
 }
 
-pub fn call_migrate<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_migrate<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &[u8],
 ) -> VmResult<ContractResult<Response<U>>>
@@ -144,6 +147,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let data = call_migrate_raw(instance, &env, msg)?;
@@ -152,8 +156,8 @@ where
     Ok(result)
 }
 
-pub fn call_sudo<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_sudo<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &[u8],
 ) -> VmResult<ContractResult<Response<U>>>
@@ -162,6 +166,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let data = call_sudo_raw(instance, &env, msg)?;
@@ -170,8 +175,8 @@ where
     Ok(result)
 }
 
-pub fn call_reply<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_reply<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &Reply,
 ) -> VmResult<ContractResult<Response<U>>>
@@ -180,6 +185,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -189,8 +195,8 @@ where
     Ok(result)
 }
 
-pub fn call_query<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_query<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &[u8],
 ) -> VmResult<ContractResult<QueryResponse>>
@@ -198,6 +204,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let data = call_query_raw(instance, &env, msg)?;
@@ -214,8 +221,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_channel_open<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_channel_open<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &IbcChannelOpenMsg,
 ) -> VmResult<ContractResult<()>>
@@ -223,6 +230,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -233,8 +241,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_channel_connect<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_channel_connect<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &IbcChannelConnectMsg,
 ) -> VmResult<ContractResult<IbcBasicResponse<U>>>
@@ -243,6 +251,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -252,8 +261,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_channel_close<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_channel_close<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &IbcChannelCloseMsg,
 ) -> VmResult<ContractResult<IbcBasicResponse<U>>>
@@ -262,6 +271,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -271,8 +281,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_packet_receive<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_packet_receive<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &IbcPacketReceiveMsg,
 ) -> VmResult<ContractResult<IbcReceiveResponse<U>>>
@@ -281,6 +291,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -290,8 +301,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_packet_ack<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_packet_ack<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &IbcPacketAckMsg,
 ) -> VmResult<ContractResult<IbcBasicResponse<U>>>
@@ -300,6 +311,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -309,8 +321,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_packet_timeout<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_packet_timeout<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &Env,
     msg: &IbcPacketTimeoutMsg,
 ) -> VmResult<ContractResult<IbcBasicResponse<U>>>
@@ -319,6 +331,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let env = to_vec(env)?;
     let msg = to_vec(msg)?;
@@ -329,8 +342,8 @@ where
 
 /// Calls Wasm export "instantiate" and returns raw data from the contract.
 /// The result is length limited to prevent abuse but otherwise unchecked.
-pub fn call_instantiate_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_instantiate_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     info: &[u8],
     msg: &[u8],
@@ -339,6 +352,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -351,8 +365,8 @@ where
 
 /// Calls Wasm export "execute" and returns raw data from the contract.
 /// The result is length limited to prevent abuse but otherwise unchecked.
-pub fn call_execute_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_execute_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     info: &[u8],
     msg: &[u8],
@@ -361,6 +375,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -373,8 +388,8 @@ where
 
 /// Calls Wasm export "migrate" and returns raw data from the contract.
 /// The result is length limited to prevent abuse but otherwise unchecked.
-pub fn call_migrate_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_migrate_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -382,6 +397,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -394,8 +410,8 @@ where
 
 /// Calls Wasm export "sudo" and returns raw data from the contract.
 /// The result is length limited to prevent abuse but otherwise unchecked.
-pub fn call_sudo_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_sudo_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -403,6 +419,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(instance, "sudo", &[env, msg], read_limits::RESULT_SUDO)
@@ -410,8 +427,8 @@ where
 
 /// Calls Wasm export "reply" and returns raw data from the contract.
 /// The result is length limited to prevent abuse but otherwise unchecked.
-pub fn call_reply_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_reply_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -419,6 +436,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(instance, "reply", &[env, msg], read_limits::RESULT_REPLY)
@@ -426,8 +444,8 @@ where
 
 /// Calls Wasm export "query" and returns raw data from the contract.
 /// The result is length limited to prevent abuse but otherwise unchecked.
-pub fn call_query_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_query_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -435,14 +453,15 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(true);
     call_raw(instance, "query", &[env, msg], read_limits::RESULT_QUERY)
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_channel_open_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_channel_open_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -450,6 +469,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -461,8 +481,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_channel_connect_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_channel_connect_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -470,6 +490,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -481,8 +502,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_channel_close_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_channel_close_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -490,6 +511,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -501,8 +523,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_packet_receive_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_packet_receive_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -510,6 +532,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -521,8 +544,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_packet_ack_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_packet_ack_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -530,6 +553,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -541,8 +565,8 @@ where
 }
 
 #[cfg(feature = "stargate")]
-pub fn call_ibc_packet_timeout_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn call_ibc_packet_timeout_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: &[u8],
     msg: &[u8],
 ) -> VmResult<Vec<u8>>
@@ -550,6 +574,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     instance.set_storage_readonly(false);
     call_raw(
@@ -562,8 +587,8 @@ where
 
 /// Calls a function with the given arguments.
 /// The exported function must return exactly one result (an offset to the result Region).
-pub(crate) fn call_raw<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub(crate) fn call_raw<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     name: &str,
     args: &[&[u8]],
     result_max_length: usize,
@@ -572,6 +597,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     let mut arg_region_ptrs = Vec::<Val>::with_capacity(args.len());
     for arg in args {
@@ -602,7 +628,7 @@ mod tests {
         // init
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
     }
@@ -614,14 +640,14 @@ mod tests {
         // init
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
         // execute
         let info = mock_info("verifies", &coins(15, "earth"));
         let msg = br#"{"release":{}}"#;
-        call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
     }
@@ -633,13 +659,13 @@ mod tests {
         // init
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
         // change the verifier via migrate
         let msg = br#"{"verifier": "someone else"}"#;
-        let _res = call_migrate::<_, _, _, Empty>(&mut instance, &mock_env(), msg);
+        let _res = call_migrate::<_, _, _, Empty, _>(&mut instance, &mock_env(), msg);
 
         // query the new_verifier with verifier
         let msg = br#"{"verifier":{}}"#;
@@ -658,7 +684,7 @@ mod tests {
         // init
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
@@ -684,17 +710,19 @@ mod tests {
             Empty, Event, IbcAcknowledgement, IbcOrder, Reply, ReplyOn, SubMsgExecutionResponse,
             SubMsgResult,
         };
+        use wasmer::{Exports, Function, ImportObject, Instance as WasmerInstance, Module, Val};
+
         static CONTRACT: &[u8] = include_bytes!("../testdata/ibc_reflect.wasm");
         const IBC_VERSION: &str = "ibc-reflect-v1";
         fn setup(
-            instance: &mut Instance<MockApi, MockStorage, MockQuerier>,
+            instance: &mut Instance<MockApi, MockStorage, MockQuerier, WasmerInstance>,
             channel_id: &str,
             account: &str,
         ) {
             // init
             let info = mock_info("creator", &[]);
             let msg = br#"{"reflect_code_id":77}"#;
-            call_instantiate::<_, _, _, Empty>(instance, &mock_env(), &info, msg)
+            call_instantiate::<_, _, _, Empty, _>(instance, &mock_env(), &info, msg)
                 .unwrap()
                 .unwrap();
             // first we try to open with a valid handshake
@@ -706,7 +734,7 @@ mod tests {
             // then we connect (with counter-party version set)
             let handshake_connect =
                 mock_ibc_channel_connect_ack(channel_id, IbcOrder::Ordered, IBC_VERSION);
-            let res: IbcBasicResponse = call_ibc_channel_connect::<_, _, _, Empty>(
+            let res: IbcBasicResponse = call_ibc_channel_connect::<_, _, _, Empty, _>(
                 instance,
                 &mock_env(),
                 &handshake_connect,
@@ -732,7 +760,7 @@ mod tests {
                     data: None,
                 }),
             };
-            call_reply::<_, _, _, Empty>(instance, &mock_env(), &response).unwrap();
+            call_reply::<_, _, _, Empty, _>(instance, &mock_env(), &response).unwrap();
         }
         const CHANNEL_ID: &str = "channel-123";
         const ACCOUNT: &str = "account-456";
@@ -747,9 +775,13 @@ mod tests {
             setup(&mut instance, CHANNEL_ID, ACCOUNT);
             let handshake_close =
                 mock_ibc_channel_close_init(CHANNEL_ID, IbcOrder::Ordered, IBC_VERSION);
-            call_ibc_channel_close::<_, _, _, Empty>(&mut instance, &mock_env(), &handshake_close)
-                .unwrap()
-                .unwrap();
+            call_ibc_channel_close::<_, _, _, Empty, _>(
+                &mut instance,
+                &mock_env(),
+                &handshake_close,
+            )
+            .unwrap()
+            .unwrap();
         }
         #[test]
         fn call_ibc_packet_ack_works() {
@@ -757,7 +789,7 @@ mod tests {
             setup(&mut instance, CHANNEL_ID, ACCOUNT);
             let ack = IbcAcknowledgement::new(br#"{}"#);
             let msg = mock_ibc_packet_ack(CHANNEL_ID, br#"{}"#, ack).unwrap();
-            call_ibc_packet_ack::<_, _, _, Empty>(&mut instance, &mock_env(), &msg)
+            call_ibc_packet_ack::<_, _, _, Empty, _>(&mut instance, &mock_env(), &msg)
                 .unwrap()
                 .unwrap();
         }
@@ -766,7 +798,7 @@ mod tests {
             let mut instance = mock_instance(CONTRACT, &[]);
             setup(&mut instance, CHANNEL_ID, ACCOUNT);
             let msg = mock_ibc_packet_timeout(CHANNEL_ID, br#"{}"#).unwrap();
-            call_ibc_packet_timeout::<_, _, _, Empty>(&mut instance, &mock_env(), &msg)
+            call_ibc_packet_timeout::<_, _, _, Empty, _>(&mut instance, &mock_env(), &msg)
                 .unwrap()
                 .unwrap();
         }
@@ -776,7 +808,7 @@ mod tests {
             setup(&mut instance, CHANNEL_ID, ACCOUNT);
             let who_am_i = br#"{"who_am_i":{}}"#;
             let msg = mock_ibc_packet_recv(CHANNEL_ID, who_am_i).unwrap();
-            call_ibc_packet_receive::<_, _, _, Empty>(&mut instance, &mock_env(), &msg)
+            call_ibc_packet_receive::<_, _, _, Empty, _>(&mut instance, &mock_env(), &msg)
                 .unwrap()
                 .unwrap();
         }

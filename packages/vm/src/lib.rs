@@ -19,6 +19,7 @@ mod serde;
 mod size;
 mod static_analysis;
 pub mod testing;
+mod wasm;
 mod wasm_backend;
 
 pub use crate::backend::{
@@ -46,6 +47,7 @@ pub use crate::features::features_from_csv;
 pub use crate::instance::{GasReport, Instance, InstanceOptions};
 pub use crate::serde::{from_slice, to_vec};
 pub use crate::size::Size;
+pub use crate::wasm::WasmVM;
 
 #[doc(hidden)]
 pub mod internals {

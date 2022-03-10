@@ -21,13 +21,13 @@ use crate::calls::{
 };
 use crate::instance::Instance;
 use crate::serde::to_vec;
-use crate::{BackendApi, Querier, Storage};
+use crate::{BackendApi, Querier, Storage, WasmVM};
 
 /// Mimicks the call signature of the smart contracts.
 /// Thus it moves env and msg rather than take them as reference.
 /// This is inefficient here, but only used in test code.
-pub fn instantiate<A, S, Q, M, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn instantiate<A, S, Q, M, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     info: MessageInfo,
     msg: M,
@@ -38,6 +38,7 @@ where
     Q: Querier + 'static,
     M: Serialize + JsonSchema,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let serialized_msg = to_vec(&msg).expect("Testing error: Could not seralize request message");
     call_instantiate(instance, &env, &info, &serialized_msg).expect("VM error")
@@ -46,8 +47,8 @@ where
 // execute mimicks the call signature of the smart contracts.
 // thus it moves env and msg rather than take them as reference.
 // this is inefficient here, but only used in test code
-pub fn execute<A, S, Q, M, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn execute<A, S, Q, M, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     info: MessageInfo,
     msg: M,
@@ -58,6 +59,7 @@ where
     Q: Querier + 'static,
     M: Serialize + JsonSchema,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let serialized_msg = to_vec(&msg).expect("Testing error: Could not seralize request message");
     call_execute(instance, &env, &info, &serialized_msg).expect("VM error")
@@ -66,8 +68,8 @@ where
 // migrate mimicks the call signature of the smart contracts.
 // thus it moves env and msg rather than take them as reference.
 // this is inefficient here, but only used in test code
-pub fn migrate<A, S, Q, M, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn migrate<A, S, Q, M, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: M,
 ) -> ContractResult<Response<U>>
@@ -77,6 +79,7 @@ where
     Q: Querier + 'static,
     M: Serialize + JsonSchema,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let serialized_msg = to_vec(&msg).expect("Testing error: Could not seralize request message");
     call_migrate(instance, &env, &serialized_msg).expect("VM error")
@@ -85,8 +88,8 @@ where
 // sudo mimicks the call signature of the smart contracts.
 // thus it moves env and msg rather than take them as reference.
 // this is inefficient here, but only used in test code
-pub fn sudo<A, S, Q, M, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn sudo<A, S, Q, M, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: M,
 ) -> ContractResult<Response<U>>
@@ -96,6 +99,7 @@ where
     Q: Querier + 'static,
     M: Serialize + JsonSchema,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     let serialized_msg = to_vec(&msg).expect("Testing error: Could not seralize request message");
     call_sudo(instance, &env, &serialized_msg).expect("VM error")
@@ -104,8 +108,8 @@ where
 // reply mimicks the call signature of the smart contracts.
 // thus it moves env and msg rather than take them as reference.
 // this is inefficient here, but only used in test code
-pub fn reply<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn reply<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: Reply,
 ) -> ContractResult<Response<U>>
@@ -114,6 +118,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     call_reply(instance, &env, &msg).expect("VM error")
 }
@@ -121,8 +126,8 @@ where
 // query mimicks the call signature of the smart contracts.
 // thus it moves env and msg rather than take them as reference.
 // this is inefficient here, but only used in test code
-pub fn query<A, S, Q, M>(
-    instance: &mut Instance<A, S, Q>,
+pub fn query<A, S, Q, M, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: M,
 ) -> ContractResult<QueryResponse>
@@ -131,6 +136,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     M: Serialize + JsonSchema,
+    W: WasmVM + 'static,
 {
     let serialized_msg = to_vec(&msg).expect("Testing error: Could not seralize request message");
     call_query(instance, &env, &serialized_msg).expect("VM error")
@@ -140,8 +146,8 @@ where
 // thus it moves env and channel rather than take them as reference.
 // this is inefficient here, but only used in test code
 #[cfg(feature = "stargate")]
-pub fn ibc_channel_open<A, S, Q>(
-    instance: &mut Instance<A, S, Q>,
+pub fn ibc_channel_open<A, S, Q, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: IbcChannelOpenMsg,
 ) -> ContractResult<()>
@@ -149,6 +155,7 @@ where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
     call_ibc_channel_open(instance, &env, &msg).expect("VM error")
 }
@@ -157,8 +164,8 @@ where
 // thus it moves env and channel rather than take them as reference.
 // this is inefficient here, but only used in test code
 #[cfg(feature = "stargate")]
-pub fn ibc_channel_connect<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn ibc_channel_connect<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: IbcChannelConnectMsg,
 ) -> ContractResult<IbcBasicResponse<U>>
@@ -167,6 +174,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     call_ibc_channel_connect(instance, &env, &msg).expect("VM error")
 }
@@ -175,8 +183,8 @@ where
 // thus it moves env and channel rather than take them as reference.
 // this is inefficient here, but only used in test code
 #[cfg(feature = "stargate")]
-pub fn ibc_channel_close<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn ibc_channel_close<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: IbcChannelCloseMsg,
 ) -> ContractResult<IbcBasicResponse<U>>
@@ -185,6 +193,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     call_ibc_channel_close(instance, &env, &msg).expect("VM error")
 }
@@ -193,8 +202,8 @@ where
 // thus it moves env and packet rather than take them as reference.
 // this is inefficient here, but only used in test code
 #[cfg(feature = "stargate")]
-pub fn ibc_packet_receive<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn ibc_packet_receive<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: IbcPacketReceiveMsg,
 ) -> ContractResult<IbcReceiveResponse<U>>
@@ -203,6 +212,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     call_ibc_packet_receive(instance, &env, &msg).expect("VM error")
 }
@@ -211,8 +221,8 @@ where
 // thus it moves env and acknowledgement rather than take them as reference.
 // this is inefficient here, but only used in test code
 #[cfg(feature = "stargate")]
-pub fn ibc_packet_ack<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn ibc_packet_ack<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: IbcPacketAckMsg,
 ) -> ContractResult<IbcBasicResponse<U>>
@@ -221,6 +231,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     call_ibc_packet_ack(instance, &env, &msg).expect("VM error")
 }
@@ -229,8 +240,8 @@ where
 // thus it moves env and packet rather than take them as reference.
 // this is inefficient here, but only used in test code
 #[cfg(feature = "stargate")]
-pub fn ibc_packet_timeout<A, S, Q, U>(
-    instance: &mut Instance<A, S, Q>,
+pub fn ibc_packet_timeout<A, S, Q, U, W>(
+    instance: &mut Instance<A, S, Q, W>,
     env: Env,
     msg: IbcPacketTimeoutMsg,
 ) -> ContractResult<IbcBasicResponse<U>>
@@ -239,6 +250,7 @@ where
     S: Storage + 'static,
     Q: Querier + 'static,
     U: DeserializeOwned + CustomMsg,
+    W: WasmVM + 'static,
 {
     call_ibc_packet_timeout(instance, &env, &msg).expect("VM error")
 }

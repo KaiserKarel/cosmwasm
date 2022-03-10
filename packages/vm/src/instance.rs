@@ -16,9 +16,10 @@ use crate::imports::{
 };
 #[cfg(feature = "iterator")]
 use crate::imports::{do_db_next, do_db_scan};
-use crate::memory::{read_region, write_region};
 use crate::size::Size;
+use crate::wasm::Memory;
 use crate::wasm_backend::compile;
+use crate::WasmVM;
 
 #[derive(Copy, Clone, Debug)]
 pub struct GasReport {
@@ -39,41 +40,22 @@ pub struct InstanceOptions {
     pub print_debug: bool,
 }
 
-pub struct Instance<A: BackendApi, S: Storage, Q: Querier> {
+pub struct Instance<A: BackendApi, S: Storage, Q: Querier, W: WasmVM> {
     /// We put this instance in a box to maintain a constant memory address for the entire
     /// lifetime of the instance in the cache. This is needed e.g. when linking the wasmer
     /// instance to a context. See also https://github.com/CosmWasm/cosmwasm/pull/245.
     ///
     /// This instance should only be accessed via the Environment, which provides safe access.
-    _inner: Box<WasmerInstance>,
-    env: Environment<A, S, Q>,
+    _inner: Box<W>,
+    env: Environment<A, S, Q, W>,
 }
 
-impl<A, S, Q> Instance<A, S, Q>
+impl<A, S, Q> Instance<A, S, Q, WasmerInstance>
 where
     A: BackendApi + 'static, // 'static is needed here to allow copying API instances into closures
     S: Storage + 'static, // 'static is needed here to allow using this in an Environment that is cloned into closures
     Q: Querier + 'static, // 'static is needed here to allow using this in an Environment that is cloned into closures
 {
-    /// This is the only Instance constructor that can be called from outside of cosmwasm-vm,
-    /// e.g. in test code that needs a customized variant of cosmwasm_vm::testing::mock_instance*.
-    pub fn from_code(
-        code: &[u8],
-        backend: Backend<A, S, Q>,
-        options: InstanceOptions,
-        memory_limit: Option<Size>,
-    ) -> VmResult<Self> {
-        let module = compile(code, memory_limit, &[])?;
-        Instance::from_module(
-            &module,
-            backend,
-            options.gas_limit,
-            options.print_debug,
-            None,
-            None,
-        )
-    }
-
     pub(crate) fn from_module(
         module: &Module,
         backend: Backend<A, S, Q>,
@@ -227,7 +209,7 @@ where
         );
 
         let instance_ptr = NonNull::from(wasmer_instance.as_ref());
-        env.set_wasmer_instance(Some(instance_ptr));
+        env.set_wasm_instance(Some(instance_ptr));
         env.set_gas_left(gas_limit);
         env.move_in(backend.storage, backend.querier);
         let instance = Instance {
@@ -237,6 +219,33 @@ where
         Ok(instance)
     }
 
+    /// This is the only Instance constructor that can be called from outside of cosmwasm-vm,
+    /// e.g. in test code that needs a customized variant of cosmwasm_vm::testing::mock_instance*.
+    pub fn from_code(
+        code: &[u8],
+        backend: Backend<A, S, Q>,
+        options: InstanceOptions,
+        memory_limit: Option<Size>,
+    ) -> VmResult<Self> {
+        let module = compile(code, memory_limit, &[])?;
+        Instance::from_module(
+            &module,
+            backend,
+            options.gas_limit,
+            options.print_debug,
+            None,
+            None,
+        )
+    }
+}
+
+impl<A, S, Q, W> Instance<A, S, Q, W>
+where
+    A: BackendApi + 'static, // 'static is needed here to allow copying API instances into closures
+    S: Storage + 'static, // 'static is needed here to allow using this in an Environment that is cloned into closures
+    Q: Querier + 'static, // 'static is needed here to allow using this in an Environment that is cloned into closures
+    W: WasmVM + 'static,
+{
     pub fn api(&self) -> &A {
         &self.env.api
     }
@@ -270,7 +279,9 @@ where
     /// Wasm memory always grows in 64 KiB steps (pages) and can never shrink
     /// (https://github.com/WebAssembly/design/issues/1300#issuecomment-573867836).
     pub fn memory_pages(&self) -> usize {
-        self.env.memory().size().0 as _
+        use crate::wasm::{Memory, Pages};
+
+        self.env.memory().size().inner() as _
     }
 
     /// Returns the currently remaining gas.
@@ -334,12 +345,12 @@ where
 
     /// Copies all data described by the Region at the given pointer from Wasm to the caller.
     pub(crate) fn read_memory(&self, region_ptr: u32, max_length: usize) -> VmResult<Vec<u8>> {
-        read_region(&self.env.memory(), region_ptr, max_length)
+        self.env.memory().read_region(region_ptr, max_length)
     }
 
     /// Copies data to the memory region that was created before using allocate.
     pub(crate) fn write_memory(&mut self, region_ptr: u32, data: &[u8]) -> VmResult<()> {
-        write_region(&self.env.memory(), region_ptr, data)?;
+        self.env.memory().write_region(region_ptr, data)?;
         Ok(())
     }
 
@@ -364,7 +375,7 @@ pub fn instance_from_module<A, S, Q>(
     gas_limit: u64,
     print_debug: bool,
     extra_imports: Option<HashMap<&str, Exports>>,
-) -> VmResult<Instance<A, S, Q>>
+) -> VmResult<Instance<A, S, Q, WasmerInstance>>
 where
     A: BackendApi + 'static, // 'static is needed here to allow copying API instances into closures
     S: Storage + 'static, // 'static is needed here to allow using this in an Environment that is cloned into closures
@@ -401,7 +412,7 @@ mod tests {
     fn required_features_works() {
         let backend = mock_backend(&[]);
         let (instance_options, memory_limit) = mock_instance_options();
-        let instance =
+        let instance: Instance<_, _, _, WasmerInstance> =
             Instance::from_code(CONTRACT, backend, instance_options, memory_limit).unwrap();
         assert_eq!(instance.required_features().len(), 0);
     }
@@ -424,7 +435,8 @@ mod tests {
 
         let backend = mock_backend(&[]);
         let (instance_options, memory_limit) = mock_instance_options();
-        let instance = Instance::from_code(&wasm, backend, instance_options, memory_limit).unwrap();
+        let instance: Instance<_, _, _, WasmerInstance> =
+            Instance::from_code(&wasm, backend, instance_options, memory_limit).unwrap();
         assert_eq!(instance.required_features().len(), 3);
         assert!(instance.required_features().contains("nutrients"));
         assert!(instance.required_features().contains("sun"));
@@ -463,7 +475,7 @@ mod tests {
         exports.insert("bar", fun);
         let mut extra_imports = HashMap::new();
         extra_imports.insert("foo", exports);
-        let instance = Instance::from_module(
+        let instance: Instance<_, _, _, WasmerInstance> = Instance::from_module(
             &module,
             backend,
             instance_options.gas_limit,
@@ -573,7 +585,7 @@ mod tests {
         // set up an instance that will experience an error in an import
         let error_message = "Api failed intentionally";
         let mut instance = mock_instance_with_failing_api(CONTRACT, &[], error_message);
-        let init_result = call_instantiate::<_, _, _, Empty>(
+        let init_result = call_instantiate::<_, _, _, Empty, WasmerInstance>(
             &mut instance,
             &mock_env(),
             &mock_info("someone", &[]),
@@ -693,7 +705,7 @@ mod tests {
         // init contract
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, WasmerInstance>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
@@ -883,7 +895,7 @@ mod tests {
         // init contract
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, WasmerInstance>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
@@ -898,7 +910,7 @@ mod tests {
         // init contract
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, WasmerInstance>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
@@ -906,7 +918,7 @@ mod tests {
         let gas_before_execute = instance.get_gas_left();
         let info = mock_info("verifies", &coins(15, "earth"));
         let msg = br#"{"release":{}}"#;
-        call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+        call_execute::<_, _, _, Empty, WasmerInstance>(&mut instance, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
 
@@ -921,7 +933,12 @@ mod tests {
         // init contract
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        let res = call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg);
+        let res = call_instantiate::<_, _, _, Empty, WasmerInstance>(
+            &mut instance,
+            &mock_env(),
+            &info,
+            msg,
+        );
         assert!(res.is_err());
     }
 
@@ -932,9 +949,14 @@ mod tests {
         // init contract
         let info = mock_info("creator", &coins(1000, "earth"));
         let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-        let _res = call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
-            .unwrap()
-            .unwrap();
+        let _res = call_instantiate::<_, _, _, Empty, WasmerInstance>(
+            &mut instance,
+            &mock_env(),
+            &info,
+            msg,
+        )
+        .unwrap()
+        .unwrap();
 
         // run contract - just sanity check - results validate in contract unit tests
         let gas_before_query = instance.get_gas_left();

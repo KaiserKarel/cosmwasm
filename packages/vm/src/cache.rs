@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use wasmer::{Exports, Function, ImportObject, Instance as WasmerInstance, Module, Val};
 
 use crate::backend::{Backend, BackendApi, Querier, Storage};
 use crate::checksum::Checksum;
@@ -15,6 +16,7 @@ use crate::modules::{FileSystemCache, InMemoryCache, PinnedMemoryCache};
 use crate::size::Size;
 use crate::static_analysis::{deserialize_wasm, has_ibc_entry_points};
 use crate::wasm_backend::{compile, make_runtime_store};
+use crate::WasmVM;
 
 const STATE_DIR: &str = "state";
 // Things related to the state of the blockchain.
@@ -62,7 +64,7 @@ pub struct CacheInner {
     stats: Stats,
 }
 
-pub struct Cache<A: BackendApi, S: Storage, Q: Querier> {
+pub struct Cache<A: BackendApi, S: Storage, Q: Querier, W: WasmVM> {
     /// Supported features are immutable for the lifetime of the cache,
     /// i.e. any number of read-only references is allowed to access it concurrently.
     supported_features: HashSet<String>,
@@ -73,6 +75,7 @@ pub struct Cache<A: BackendApi, S: Storage, Q: Querier> {
     type_querier: PhantomData<Q>,
     /// To prevent concurrent access to `WasmerInstance::new`
     instantiation_lock: Mutex<()>,
+    type_vm: PhantomData<W>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -81,11 +84,12 @@ pub struct AnalysisReport {
     pub required_features: HashSet<String>,
 }
 
-impl<A, S, Q> Cache<A, S, Q>
+impl<A, S, Q, W> Cache<A, S, Q, W>
 where
     A: BackendApi + 'static, // 'static is needed by `impl<…> Instance`
     S: Storage + 'static,    // 'static is needed by `impl<…> Instance`
     Q: Querier + 'static,    // 'static is needed by `impl<…> Instance`
+    W: WasmVM,
 {
     /// Creates a new cache that stores data in `base_dir`.
     ///
@@ -133,6 +137,7 @@ where
             type_storage: PhantomData::<S>,
             type_api: PhantomData::<A>,
             type_querier: PhantomData::<Q>,
+            type_vm: Default::default(),
             instantiation_lock: Mutex::new(()),
         })
     }
@@ -256,7 +261,7 @@ where
         checksum: &Checksum,
         backend: Backend<A, S, Q>,
         options: InstanceOptions,
-    ) -> VmResult<Instance<A, S, Q>> {
+    ) -> VmResult<Instance<A, S, Q, WasmerInstance>> {
         let module = self.get_module(checksum)?;
         let instance = Instance::from_module(
             &module,
@@ -314,19 +319,21 @@ where
     }
 }
 
-unsafe impl<A, S, Q> Sync for Cache<A, S, Q>
+unsafe impl<A, S, Q, W> Sync for Cache<A, S, Q, W>
 where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
 }
 
-unsafe impl<A, S, Q> Send for Cache<A, S, Q>
+unsafe impl<A, S, Q, W> Send for Cache<A, S, Q, W>
 where
     A: BackendApi + 'static,
     S: Storage + 'static,
     Q: Querier + 'static,
+    W: WasmVM + 'static,
 {
 }
 
@@ -413,7 +420,7 @@ mod tests {
 
     #[test]
     fn save_wasm_works() {
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(make_testing_options()).unwrap() };
         cache.save_wasm(CONTRACT).unwrap();
     }
@@ -421,7 +428,7 @@ mod tests {
     #[test]
     // This property is required when the same bytecode is uploaded multiple times
     fn save_wasm_allows_saving_multiple_times() {
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(make_testing_options()).unwrap() };
         cache.save_wasm(CONTRACT).unwrap();
         cache.save_wasm(CONTRACT).unwrap();
@@ -441,7 +448,7 @@ mod tests {
         )
         .unwrap();
 
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(make_testing_options()).unwrap() };
         let save_result = cache.save_wasm(&wasm);
         match save_result.unwrap_err() {
@@ -457,7 +464,8 @@ mod tests {
         // Who knows if and when the uploaded contract will be executed. Don't pollute
         // memory cache before the init call.
 
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<_, _, _, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         let backend = mock_backend(&[]);
@@ -472,7 +480,7 @@ mod tests {
 
     #[test]
     fn load_wasm_works() {
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
@@ -492,7 +500,7 @@ mod tests {
                 memory_cache_size: TESTING_MEMORY_CACHE_SIZE,
                 instance_memory_limit: TESTING_MEMORY_LIMIT,
             };
-            let cache1: Cache<MockApi, MockStorage, MockQuerier> =
+            let cache1: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
                 unsafe { Cache::new(options1).unwrap() };
             id = cache1.save_wasm(CONTRACT).unwrap();
         }
@@ -504,7 +512,7 @@ mod tests {
                 memory_cache_size: TESTING_MEMORY_CACHE_SIZE,
                 instance_memory_limit: TESTING_MEMORY_LIMIT,
             };
-            let cache2: Cache<MockApi, MockStorage, MockQuerier> =
+            let cache2: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
                 unsafe { Cache::new(options2).unwrap() };
             let restored = cache2.load_wasm(&id).unwrap();
             assert_eq!(restored, CONTRACT);
@@ -513,7 +521,7 @@ mod tests {
 
     #[test]
     fn load_wasm_errors_for_non_existent_id() {
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = Checksum::from([
             5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
@@ -538,7 +546,7 @@ mod tests {
             memory_cache_size: TESTING_MEMORY_CACHE_SIZE,
             instance_memory_limit: TESTING_MEMORY_LIMIT,
         };
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(options).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
@@ -561,7 +569,8 @@ mod tests {
 
     #[test]
     fn get_instance_finds_cached_module() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
         let backend = mock_backend(&[]);
         let _instance = cache
@@ -575,7 +584,8 @@ mod tests {
 
     #[test]
     fn get_instance_finds_cached_modules_and_stores_to_memory() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
         let backend1 = mock_backend(&[]);
         let backend2 = mock_backend(&[]);
@@ -638,7 +648,8 @@ mod tests {
 
     #[test]
     fn call_instantiate_on_cached_contract() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         // from file system
@@ -654,8 +665,8 @@ mod tests {
             // init
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-            let res =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+            let res = call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                .unwrap();
             let msgs = res.unwrap().messages;
             assert_eq!(msgs.len(), 0);
         }
@@ -673,8 +684,8 @@ mod tests {
             // init
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-            let res =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+            let res = call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                .unwrap();
             let msgs = res.unwrap().messages;
             assert_eq!(msgs.len(), 0);
         }
@@ -694,8 +705,8 @@ mod tests {
             // init
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
-            let res =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+            let res = call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                .unwrap();
             let msgs = res.unwrap().messages;
             assert_eq!(msgs.len(), 0);
         }
@@ -703,7 +714,8 @@ mod tests {
 
     #[test]
     fn call_execute_on_cached_contract() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         // from file system
@@ -720,20 +732,21 @@ mod tests {
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
             let response =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+                call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
                     .unwrap()
                     .unwrap();
+
             assert_eq!(response.messages.len(), 0);
 
             // execute
             let info = mock_info("verifies", &coins(15, "earth"));
             let msg = br#"{"release":{}}"#;
-            let response = call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
-                .unwrap()
-                .unwrap();
+            let response =
+                call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                    .unwrap()
+                    .unwrap();
             assert_eq!(response.messages.len(), 1);
         }
-
         // from memory
         {
             let mut instance = cache
@@ -748,7 +761,7 @@ mod tests {
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
             let response =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+                call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
                     .unwrap()
                     .unwrap();
             assert_eq!(response.messages.len(), 0);
@@ -756,9 +769,10 @@ mod tests {
             // execute
             let info = mock_info("verifies", &coins(15, "earth"));
             let msg = br#"{"release":{}}"#;
-            let response = call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
-                .unwrap()
-                .unwrap();
+            let response =
+                call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                    .unwrap()
+                    .unwrap();
             assert_eq!(response.messages.len(), 1);
         }
 
@@ -778,7 +792,7 @@ mod tests {
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
             let response =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
+                call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
                     .unwrap()
                     .unwrap();
             assert_eq!(response.messages.len(), 0);
@@ -786,16 +800,18 @@ mod tests {
             // execute
             let info = mock_info("verifies", &coins(15, "earth"));
             let msg = br#"{"release":{}}"#;
-            let response = call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg)
-                .unwrap()
-                .unwrap();
+            let response =
+                call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                    .unwrap()
+                    .unwrap();
             assert_eq!(response.messages.len(), 1);
         }
     }
 
     #[test]
     fn use_multiple_cached_instances_of_same_contract() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         // these differentiate the two instances of the same contract
@@ -809,7 +825,7 @@ mod tests {
         let info = mock_info("owner1", &coins(1000, "earth"));
         let msg = br#"{"verifier": "sue", "beneficiary": "mary"}"#;
         let res =
-            call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+            call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg).unwrap();
         let msgs = res.unwrap().messages;
         assert_eq!(msgs.len(), 0);
         let backend1 = instance.recycle().unwrap();
@@ -821,7 +837,7 @@ mod tests {
         let info = mock_info("owner2", &coins(500, "earth"));
         let msg = br#"{"verifier": "bob", "beneficiary": "john"}"#;
         let res =
-            call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+            call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg).unwrap();
         let msgs = res.unwrap().messages;
         assert_eq!(msgs.len(), 0);
         let backend2 = instance.recycle().unwrap();
@@ -832,7 +848,8 @@ mod tests {
             .unwrap();
         let info = mock_info("bob", &coins(15, "earth"));
         let msg = br#"{"release":{}}"#;
-        let res = call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+        let res =
+            call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg).unwrap();
         let msgs = res.unwrap().messages;
         assert_eq!(1, msgs.len());
 
@@ -842,14 +859,16 @@ mod tests {
             .unwrap();
         let info = mock_info("sue", &coins(15, "earth"));
         let msg = br#"{"release":{}}"#;
-        let res = call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+        let res =
+            call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg).unwrap();
         let msgs = res.unwrap().messages;
         assert_eq!(1, msgs.len());
     }
 
     #[test]
     fn resets_gas_when_reusing_instance() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         let backend1 = mock_backend(&[]);
@@ -868,7 +887,7 @@ mod tests {
         // Consume some gas
         let info = mock_info("owner1", &coins(1000, "earth"));
         let msg = br#"{"verifier": "sue", "beneficiary": "mary"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance1, &mock_env(), &info, msg)
+        call_instantiate::<_, _, _, Empty, _>(&mut instance1, &mock_env(), &info, msg)
             .unwrap()
             .unwrap();
         assert!(instance1.get_gas_left() < original_gas);
@@ -886,7 +905,8 @@ mod tests {
 
     #[test]
     fn recovers_from_out_of_gas() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         let backend1 = mock_backend(&[]);
@@ -904,7 +924,7 @@ mod tests {
         // Consume some gas. This fails
         let info1 = mock_info("owner1", &coins(1000, "earth"));
         let msg1 = br#"{"verifier": "sue", "beneficiary": "mary"}"#;
-        match call_instantiate::<_, _, _, Empty>(&mut instance1, &mock_env(), &info1, msg1)
+        match call_instantiate::<_, _, _, Empty, _>(&mut instance1, &mock_env(), &info1, msg1)
             .unwrap_err()
         {
             VmError::GasDepletion { .. } => (), // all good, continue
@@ -927,7 +947,7 @@ mod tests {
         // Now it works
         let info2 = mock_info("owner2", &coins(500, "earth"));
         let msg2 = br#"{"verifier": "bob", "beneficiary": "john"}"#;
-        call_instantiate::<_, _, _, Empty>(&mut instance2, &mock_env(), &info2, msg2)
+        call_instantiate::<_, _, _, Empty, _>(&mut instance2, &mock_env(), &info2, msg2)
             .unwrap()
             .unwrap();
     }
@@ -976,7 +996,7 @@ mod tests {
 
     #[test]
     fn analyze_works() {
-        let cache: Cache<MockApi, MockStorage, MockQuerier> =
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
             unsafe { Cache::new(make_stargate_testing_options()).unwrap() };
 
         let checksum1 = cache.save_wasm(CONTRACT).unwrap();
@@ -1006,7 +1026,8 @@ mod tests {
 
     #[test]
     fn pin_unpin_works() {
-        let cache = unsafe { Cache::new(make_testing_options()).unwrap() };
+        let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+            unsafe { Cache::new(make_testing_options()).unwrap() };
         let checksum = cache.save_wasm(CONTRACT).unwrap();
 
         // check not pinned

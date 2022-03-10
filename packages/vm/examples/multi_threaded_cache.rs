@@ -7,6 +7,7 @@ use cosmwasm_vm::testing::{mock_backend, mock_env, mock_info, MockApi, MockQueri
 use cosmwasm_vm::{
     call_execute, call_instantiate, features_from_csv, Cache, CacheOptions, InstanceOptions, Size,
 };
+use wasmer::{Exports, Function, ImportObject, Instance as WasmerInstance, Module, Val};
 
 // Instance
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(64);
@@ -32,7 +33,8 @@ pub fn main() {
         instance_memory_limit: DEFAULT_MEMORY_LIMIT,
     };
 
-    let cache: Cache<MockApi, MockStorage, MockQuerier> = unsafe { Cache::new(options).unwrap() };
+    let cache: Cache<MockApi, MockStorage, MockQuerier, WasmerInstance> =
+        unsafe { Cache::new(options).unwrap() };
     let cache = Arc::new(cache);
 
     let checksum = cache.save_wasm(CONTRACT).unwrap();
@@ -59,13 +61,14 @@ pub fn main() {
             let info = mock_info("creator", &coins(1000, "earth"));
             let msg = br#"{"verifier": "verifies", "beneficiary": "benefits"}"#;
             let contract_result =
-                call_instantiate::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+                call_instantiate::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg)
+                    .unwrap();
             assert!(contract_result.into_result().is_ok());
 
             let info = mock_info("verifies", &coins(15, "earth"));
             let msg = br#"{"release":{}}"#;
             let contract_result =
-                call_execute::<_, _, _, Empty>(&mut instance, &mock_env(), &info, msg).unwrap();
+                call_execute::<_, _, _, Empty, _>(&mut instance, &mock_env(), &info, msg).unwrap();
             assert!(contract_result.into_result().is_ok());
         }));
     }
